@@ -1,23 +1,23 @@
 name: Deploy to GitHub Pages
 
 on:
-  release:
-    types: [published]
   push:
     branches: [main]
+  release:
+    types: [published]
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-pages@v4
-      - uses: actions/upload-pages-artifact@v3
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy 🚀
+        uses: JamesIves/github-pages-deploy-action@v4
         with:
-          path: './lab4'
-      - uses: actions/deploy-pages@v4
+          folder: lab4
+          branch: gh-pages
