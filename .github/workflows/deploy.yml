@@ -1,0 +1,75 @@
+name: Deploy to GitHub Pages
+
+on:
+  release:
+    types: [created]
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Git
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+      
+      - name: Get release info
+        id: release
+        run: |
+          if [ "${{ github.event_name }}" == "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+            echo "is_release=true" >> $GITHUB_OUTPUT
+          else
+            echo "tag=latest" >> $GITHUB_OUTPUT
+            echo "is_release=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Checkout gh-pages
+        run: |
+          git fetch origin gh-pages || true
+          git checkout gh-pages 2>/dev/null || git checkout --orphan gh-pages
+          git reset --hard
+      
+      - name: Deploy files
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          IS_RELEASE="${{ steps.release.outputs.is_release }}"
+          REPO_NAME="${{ github.event.repository.name }}"
+          
+          # Clean current directory
+          find . -maxdepth 1 ! -name '.git' -exec rm -rf {} + 2>/dev/null || true
+          
+          # Copy files from main branch
+          git checkout main -- .
+          
+          if [ "$IS_RELEASE" == "true" ]; then
+            # Create versioned directory for releases
+            mkdir -p "$REPO_NAME/$TAG"
+            cp -r *.html "$REPO_NAME/$TAG/" 2>/dev/null || true
+            
+            # Create simple version index
+            echo "<h1>Versions for $REPO_NAME</h1>" > "$REPO_NAME/index.html"
+            echo "<ul><li><a href='$TAG/'>Version $TAG</a></li></ul>" >> "$REPO_NAME/index.html"
+            
+            git add "$REPO_NAME"
+          fi
+          
+          # Remove workflow files from deployment
+          rm -rf .github 2>/dev/null || true
+          
+          git add .
+          
+          if ! git diff --staged --quiet; then
+            git commit -m "Deploy $TAG"
+            git push origin gh-pages
+          fi
