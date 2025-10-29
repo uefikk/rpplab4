@@ -4,18 +4,16 @@ on:
   release:
     types: [created]
   push:
-    branches: [main, master]
+    branches: [main]
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -25,105 +23,90 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
       
-      - name: Detect branch info
-        id: branch_info
+      - name: Setup gh-pages
         run: |
-          # Определяем какая ветка основная
-          if git show-ref --verify --quiet refs/heads/main; then
-            echo "branch=main" >> $GITHUB_OUTPUT
-          elif git show-ref --verify --quiet refs/heads/master; then
-            echo "branch=master" >> $GITHUB_OUTPUT
+          # Создаем или переключаемся на чистую gh-pages ветку
+          git checkout --orphan gh-pages-new
+          git reset --hard
+          
+      - name: Deploy
+        run: |
+          # Определяем тип деплоя
+          if [ "${{ github.event_name }}" == "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+            IS_RELEASE=true
           else
-            echo "branch=main" >> $GITHUB_OUTPUT
+            TAG="latest"
+            IS_RELEASE=false
           fi
           
-          # Определяем тип события
-          if [ "${{ github.event_name }}" == "release" ]; then
-            echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
-            echo "is_release=true" >> $GITHUB_OUTPUT
-          else
-            echo "tag=latest" >> $GITHUB_OUTPUT
-            echo "is_release=false" >> $GITHUB_OUTPUT
-          fi
-      
-      - name: Setup gh-pages branch
-        run: |
-          # Создаем или переключаемся на gh-pages
-          git fetch origin gh-pages || true
-          if git show-ref --verify --quiet refs/heads/gh-pages; then
-            git checkout gh-pages
-            git pull origin gh-pages
-          else
-            git checkout --orphan gh-pages
-            git reset --hard
-          fi
-      
-      - name: Deploy files
-        run: |
-          TAG="${{ steps.branch_info.outputs.tag }}"
-          IS_RELEASE="${{ steps.branch_info.outputs.is_release }}"
-          SOURCE_BRANCH="${{ steps.branch_info.outputs.branch }}"
-          REPO_NAME="${{ github.event.repository.name }}"
+          REPO_NAME="${{ github.repository }}"
+          REPO_NAME=${REPO_NAME#*/}  # Убираем username/
           
           echo "🚀 Deploying: $TAG"
-          echo "📂 Source branch: $SOURCE_BRANCH"
-          echo "🏷️ Is release: $IS_RELEASE"
+          echo "📦 Is release: $IS_RELEASE"
           
-          # Очищаем текущую ветку (кроме .git)
-          find . -maxdepth 1 ! -name '.git' ! -name '.' -exec rm -rf {} + 2>/dev/null || true
-          
-          # Копируем файлы из исходной ветки
-          git checkout $SOURCE_BRANCH -- .
+          # Копируем файлы из main ветки
+          git checkout main -- .
           
           if [ "$IS_RELEASE" == "true" ]; then
-            echo "📦 Creating versioned release: $TAG"
+            # Для релиза создаем версионную директорию
+            mkdir -p "versions/$TAG"
+            cp -r * "versions/$TAG/" 2>/dev/null || true
             
-            # Создаем версионную директорию
-            mkdir -p "$REPO_NAME/$TAG"
-            
-            # Копируем все файлы сайта
-            cp -r *.html "$REPO_NAME/$TAG/" 2>/dev/null || true
-            cp -r ru en "$REPO_NAME/$TAG/" 2>/dev/null || true
-            
-            # Создаем простой индекс версий
-            cat > "$REPO_NAME/index.html" << EOF
+            # Создаем индекс версий
+            cat > "versions/index.html" << 'EOF'
           <!DOCTYPE html>
           <html>
           <head>
               <meta charset="UTF-8">
-              <title>Versions - $REPO_NAME</title>
+              <title>Версии сайта</title>
               <style>
                   body { font-family: Arial; max-width: 600px; margin: 50px auto; padding: 20px; }
                   h1 { color: #333; }
-                  ul { list-style: none; padding: 0; }
-                  li { margin: 10px 0; }
                   a { color: #007acc; text-decoration: none; }
                   a:hover { text-decoration: underline; }
+                  .version { margin: 10px 0; padding: 10px; background: #f5f5f5; }
               </style>
           </head>
           <body>
-              <h1>Available Versions</h1>
-              <ul>
-                  <li>• <a href="$TAG/">Version $TAG</a></li>
-              </ul>
+              <h1>Доступные версии</h1>
+              <div id="versions"></div>
+              <script>
+                  // Автоматически находим версии
+                  fetch('.')
+                      .then(r => r.text())
+                      .then(html => {
+                          const parser = new DOMParser();
+                          const doc = parser.parseFromString(html, 'text/html');
+                          const links = Array.from(doc.querySelectorAll('a'))
+                              .map(a => a.href)
+                              .filter(href => href && !href.includes('index.html'))
+                              .map(href => href.replace(/\/$/, ''));
+                          
+                          const container = document.getElementById('versions');
+                          if (links.length === 0) {
+                              container.innerHTML = '<p>Версии пока не созданы</p>';
+                          } else {
+                              links.forEach(version => {
+                                  const div = document.createElement('div');
+                                  div.className = 'version';
+                                  div.innerHTML = `<a href="${version}/">🚀 ${version}</a>`;
+                                  container.appendChild(div);
+                              });
+                          }
+                      });
+              </script>
           </body>
           </html>
           EOF
-                      
-                    git add "$REPO_NAME"
                     fi
                     
-                    # Удаляем служебные файлы из деплоя
-                    rm -rf .github 2>/dev/null || true
+                    # Удаляем CI файлы из деплоя
+                    rm -rf .github
                     
-                    # Добавляем все изменения
+                    # Коммитим и принудительно пушим
                     git add .
-                    
-                    # Коммитим и пушим если есть изменения
-                    if ! git diff --staged --quiet; then
-                      git commit -m "Deploy $TAG [$(date +'%Y-%m-%d %H:%M')]"
-                      git push origin gh-pages
-                      echo "✅ Successfully deployed $TAG"
-                    else
-                      echo "ℹ️ No changes to deploy"
-                    fi
+                    git commit -m "Deploy $TAG"
+                    git push origin gh-pages-new:gh-pages --force
+                    echo "🎉 Deployed successfully!"
