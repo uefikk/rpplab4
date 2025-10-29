@@ -1,0 +1,64 @@
+name: Deploy to GitHub Pages
+
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Git
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "<>"
+      
+      - name: Prepare gh-pages
+        run: |
+          git checkout --orphan gh-pages
+          git reset --hard
+          
+      - name: Deploy
+        run: |
+          # Копируем файлы из lab4
+          cp -r lab4/* . 2>/dev/null || true
+          
+          # Для релизов создаем версионную папку
+          if [ "${{ github.event_name }}" == "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+            mkdir -p "versions/$TAG"
+            cp -r lab4/* "versions/$TAG/" 2>/dev/null || true
+            echo "✅ Created version: $TAG"
+          fi
+          
+          # Создаем индекс версий
+          cat > versions/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <meta charset="UTF-8">
+              <title>Versions</title>
+          </head>
+          <body>
+              <h1>Available Versions</h1>
+              <div id="versions-list">
+                  <a href="v1.0.0/">v1.0.0</a><br>
+                  <a href="v2.0.0/">v2.0.0</a>
+              </div>
+          </body>
+          </html>
+          EOF
+                    
+                    git add .
+                    git commit -m "Deploy ${{ github.event_name == 'release' && github.event.release.tag_name || 'latest' }}"
+                    git push origin gh-pages --force
