@@ -1,23 +1,179 @@
 name: Deploy to GitHub Pages
 
 on:
-  push:
-    branches: [main]
   release:
     types: [published]
+  workflow_dispatch: # Разрешает ручной запуск
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Setup Pages
+      uses: actions/configure-pages@v3
+    
+    - name: Create version-specific deployment
+      run: |
+        # Получаем номер версии из тега релиза
+        VERSION="${GITHUB_REF#refs/tags/}"
+        echo "Deploying version: $VERSION"
+        
+        # Создаем папку для текущей версии
+        mkdir -p "v$VERSION"
+        
+        # Копируем основные файлы в папку версии
+        cp -r ru en index.html "v$VERSION/" || true
+        
+        # Создаем кастомный index.html для версии с правильной навигацией
+        cat > "v$VERSION/index.html" << EOF
+        <!DOCTYPE html>
+        <html lang="ru">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Лабораторная работа №4 - Версия $VERSION</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    max-width: 800px;
+                    margin: 50px auto;
+                    padding: 20px;
+                    line-height: 1.6;
+                }
+                h1 {
+                    text-align: center;
+                    color: #333;
+                }
+                .nav {
+                    text-align: center;
+                    margin: 30px 0;
+                }
+                .nav a {
+                    display: inline-block;
+                    margin: 10px;
+                    padding: 10px 20px;
+                    background: #007acc;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 5px;
+                }
+                .nav a:hover {
+                    background: #005a9e;
+                }
+                .info {
+                    background: #f5f5f5;
+                    padding: 15px;
+                    border-radius: 5px;
+                    margin: 20px 0;
+                }
+                .versions {
+                    margin-top: 30px;
+                    padding: 15px;
+                    border-top: 2px solid #007acc;
+                }
+            </style>
+        </head>
+        <body>
+            <h1>Лабораторная работа №4</h1>
+            <p style="text-align: center;"><strong>Версия $VERSION</strong></p>
+            
+            <div class="nav">
+                <a href="./ru/index.html">Русская версия</a>
+                <a href="./en/index.html">English version</a>
+                <a href="../index.html">Главная страница</a>
+            </div>
+            
+            <div class="info">
+                <p><strong>Цель:</strong> Настройка автоматической публикации веб-приложения на GitHub Pages с использованием CI/CD.</p>
+                <p><strong>Статус:</strong> Эта версия была автоматически развернута через GitHub Actions при создании релиза.</p>
+            </div>
+        </body>
+        </html>
+        EOF
+        
+        # Обновляем навигацию в русской версии для работы внутри папки версии
+        if [ -f "v$VERSION/ru/index.html" ]; then
+          sed -i 's|href="../index.html"|href="../../index.html"|g' "v$VERSION/ru/index.html"
+          sed -i 's|href="../en/index.html"|href="../../en/index.html"|g' "v$VERSION/ru/index.html"
+        fi
+        
+        # Обновляем навигацию в английской версии для работы внутри папки версии
+        if [ -f "v$VERSION/en/index.html" ]; then
+          sed -i 's|href="../index.html"|href="../../index.html"|g' "v$VERSION/en/index.html"
+          sed -i 's|href="../ru/index.html"|href="../../ru/index.html"|g' "v$VERSION/en/index.html"
+        fi
+        
+        # Обновляем главный index.html - добавляем новую версию в список
+        if [ -f "index.html" ]; then
+          # Создаем временный файл с обновленным списком версий
+          if ! grep -q "v$VERSION" index.html; then
+            # Создаем backup
+            cp index.html index.html.backup
+            
+            # Генерируем новый элемент списка для текущей версии
+            NEW_VERSION_ITEM="<li><a href=\"v$VERSION/\">Версия $VERSION</a></li>"
+            
+            # Вставляем новую версию в начало списка
+            awk -v new_item="$NEW_VERSION_ITEM" '
+            /<ul id="versions-list">/ {
+                print $0
+                print "            " new_item
+                found = 1
+                next
+            }
+            /<\/ul>/ && found {
+                found = 0
+            }
+            { print }
+            ' index.html.backup > index.html
+            
+            echo "Added version $VERSION to main index.html"
+          else
+            echo "Version $VERSION already exists in index.html"
+          fi
+        fi
+        
+        # Создаем .nojekyll файл для отключения обработки Jekyll
+        touch .nojekyll
+        
+        echo "Deployment preparation completed for version $VERSION"
+    
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v2
+      with:
+        path: .
+    
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v2
 
-      - name: Deploy 🚀
-        uses: JamesIves/github-pages-deploy-action@v4
-        with:
-          folder: lab4
-          branch: gh-pages
+    - name: Commit updated index.html
+      run: |
+        # Настраиваем git
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        # Коммитим изменения в index.html
+        git add index.html
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "ci: add version ${{ github.ref_name }} to versions list"
+          git push
+          echo "Updated index.html committed to repository"
+        fi

@@ -38,6 +38,32 @@
             border-radius: 5px;
             margin: 20px 0;
         }
+        .versions {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 5px;
+            border-left: 4px solid #007acc;
+        }
+        .versions ul {
+            list-style: none;
+            padding: 0;
+        }
+        .versions li {
+            margin: 10px 0;
+            padding: 8px;
+            background: white;
+            border-radius: 3px;
+        }
+        .versions a {
+            text-decoration: none;
+            color: #007acc;
+            font-weight: bold;
+        }
+        .versions a:hover {
+            color: #005a9e;
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -45,12 +71,22 @@
     <p><strong>GitHub Pages и CI/CD</strong></p>
     
     <div class="nav">
-    <a href="ru/index.html">Русская версия</a>
-    <a href="en/index.html">English version</a>
+        <a href="ru/index.html">Русская версия</a>
+        <a href="en/index.html">English version</a>
     </div>
     
     <div class="info">
         <p><strong>Цель:</strong> Настройка автоматической публикации веб-приложения на GitHub Pages с использованием CI/CD.</p>
+    </div>
+
+    <div class="versions">
+        <h2>Версии приложения:</h2>
+        <ul id="versions-list">
+            <!-- Версии будут автоматически добавляться здесь через GitHub Actions -->
+            <li><a href="v1.0.0/">Версия 1.0.0</a></li>
+            <li><a href="v1.1.0/">Версия 1.1.0</a></li>
+        </ul>
+        <p><em>Каждая версия сохраняется в отдельной папке и остается доступной после публикации новых версий.</em></p>
     </div>
 </body>
 </html>
