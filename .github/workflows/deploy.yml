@@ -2,37 +2,87 @@ name: Deploy to GitHub Pages
 
 on:
   release:
-    types: [published]    # Запуск при публикации релиза
+    types: [published]
 
 permissions:
-  contents: write         # Разрешаем пушить в gh-pages
+  contents: write
+  pages: write
+  id-token: write
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
     steps:
-      # Клонируем репозиторий
+      # Шаг 1: Клонируем репозиторий
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # чтобы были видны теги
+          fetch-depth: 0
 
-      # Определяем имя релиза (тег, например v1.0.0)
+      # Шаг 2: Получаем версию релиза
       - name: Get release version
-        id: get_version
-        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
 
-      # Создаём папку с версией и копируем туда файлы сайта
-      - name: Build versioned folder
+      # Шаг 3: Настраиваем Git
+      - name: Setup Git
         run: |
-          mkdir -p "public/v${VERSION}"
-          cp -r index.html ru en "public/v${VERSION}/"
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
 
-      # Публикуем в ветку gh-pages
+      # Шаг 4: Клонируем ветку gh-pages
+      - name: Clone gh-pages
+        run: |
+          git clone -b gh-pages https://github.com/${{ github.repository }}.git gh-pages-temp
+
+      # Шаг 5: Создаем новую версию
+      - name: Create version folder
+        run: |
+          # Создаем папку для новой версии
+          mkdir -p "gh-pages-temp/v$VERSION"
+          # Копируем файлы в новую версию
+          cp -r index.html ru en "gh-pages-temp/v$VERSION/"
+          
+          # Также обновляем основную версию (latest)
+          cp -r index.html ru en "gh-pages-temp/"
+
+      # Шаг 6: Обновляем список версий на главной странице
+      - name: Update versions list
+        run: |
+          cd gh-pages-temp
+          
+          # Находим все папки версий
+          VERSIONS=$(find . -maxdepth 1 -name "v*" -type d | sort -rV)
+          
+          # Создаем HTML для списка версий
+          VERSION_HTML=""
+          for version_dir in $VERSIONS; do
+            if [ "$version_dir" != "." ]; then
+              version_name=$(basename $version_dir)
+              VERSION_HTML="$VERSION_HTML<li><a href=\"${version_dir}/index.html\">Версия ${version_name}</a></li>"
+            fi
+          done
+          
+          # Обновляем index.html
+          sed -i 's|<ul id="versions-list">.*</ul>|<ul id="versions-list">'"$VERSION_HTML"'</ul>|' index.html
+          
+          echo "Updated versions list:"
+          echo "$VERSION_HTML"
+
+      # Шаг 7: Публикуем изменения в gh-pages
       - name: Deploy to gh-pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./public
-          keep_files: true   # сохраняем предыдущие версии
+        run: |
+          cd gh-pages-temp
+          git add .
+          git commit -m "Deploy version $VERSION and update versions list"
+          git push
+
+      # Шаг 8: Показываем ссылки
+      - name: Show deployment info
+        run: |
+          echo "🚀 Версия $VERSION успешно опубликована!"
+          echo "📱 Главная страница: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+          echo "🔗 Новая версия: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/v$VERSION/"
